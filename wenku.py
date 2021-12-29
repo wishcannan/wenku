@@ -137,4 +137,4 @@ class wenku8:
 WK = wenku8()
 # WK.wenkulogin('你的账号','你的密码')
 # WK.getbook('https://www.wenku8.net/book/3058.htm')
-WK.getbook('https://www.wenku8.net/book/3032.htm')
+WK.getbook('https://www.wenku8.net/book/2834.htm')
