@@ -31,13 +31,13 @@ class wenku():
             os.mkdir(self.filename)
         pass
     def response_text(self,url):
-            """请求函数"""
-            response = requests.get(url,headers=self.headers,cookies=self.cookies) # 发送请求带入cookies
-            if response.status_code==200:
-                response.encoding="gbk"
-            result = response.text
-            self.cookies.update(response.cookies) #更新cookies
-            return result
+        """请求函数"""
+        response = requests.get(url,headers=self.headers,cookies=self.cookies) # 发送请求带入cookies
+        if response.status_code==200:
+            response.encoding="gbk"
+        result = response.text
+        self.cookies.update(response.cookies) #更新cookies
+        return result
 
 
 
@@ -59,21 +59,32 @@ class wenku():
             'submit':'&#160;登&#160;&#160;录&#160;'#gbk的话%26%23160%3B%B5%C7%26%23160%3B%26%23160%3B%C2%BC%26%23160%3B
         }
         # self.cookies.update(self.cookies_read())#首先读取之前的cookie 
-        #第一步 访问 这个登录页面 获取两个cookie
-        login_url = 'https://www.wenku8.net/login.php'
-        r = requests.get(login_url,headers=self.headers)
-        self.cookies.update(r.cookies) #更新cookies
-        # self.lookcookie(r.cookies)
-        headers = self.headers
-        headers['origin'] = 'https://www.wenku8.net'
-        headers['referer'] = 'https://www.wenku8.net/login.php'
-        login_r = requests.post(login_url,headers=headers,data=data,params=params,cookies=self.cookies)
-        if login_r.status_code == 200:
-            self.cookies.update(login_r.cookies)
-            self.lookcookie(login_r.cookies)
-            self.cookies_save(login_r.cookies)
+        if self.cerficate():
+            return True
         else:
-            print('登录失败',login_r.status_code)
+            #第一步 访问 这个登录页面 获取两个cookie
+            login_url = 'https://www.wenku8.net/login.php'
+            r = requests.get(login_url,headers=self.headers)
+            self.cookies.update(r.cookies) #更新cookies
+            # self.lookcookie(r.cookies)
+            headers = self.headers
+            headers['origin'] = 'https://www.wenku8.net'
+            headers['referer'] = 'https://www.wenku8.net/login.php'
+            login_r = requests.post(login_url,headers=headers,data=data,params=params,cookies=self.cookies)
+            if login_r.status_code == 200:
+                self.cookies.update(login_r.cookies)
+                self.lookcookie(login_r.cookies)
+                self.cookies_save(login_r.cookies)
+            else:
+                print('登录失败',login_r.status_code)
+    def cerficate(self):
+        #验证之前的cookie是否有效
+        self.cookies.update(self.cookies_read('cookies.txt'))#首先读取之前的cookie
+        a = self.bookcase() 
+        print(a)
+        if a == 'https://www.wenku8.net/login.php':
+            return False
+        return True
 
     def lookcookie(self,s):
         #方便我查看cookie s是cookie
@@ -115,7 +126,8 @@ class wenku():
         if r.status_code == 200:
                 r.encoding="gbk"
         result = r.text
-        print(result)
+        # print(result)
+        return r.url
 
     def searchbook(self,type='articlename',searchkey:str=None):#参数有articlename author
         #使用搜索功能一定要登录 不登陆就不行
@@ -147,15 +159,19 @@ class wenku():
         if r.status_code == 200:
             print(r.headers)
             r.encoding="gbk"
-            print(r.text)
+            # print(r.text)
             # print(r.url)
             '''
                 这里有问题 就是如果只有一个符合选项的 就会直接跳转到书页面 虽然方便爬取
                 但是如果有多个匹配项 一则要翻页 二则要对网址正则匹配
 
             '''
-            if r.url == 'https://www.wenku8.net/modules/article/search.php':
+            # if r.url == 'https://www.wenku8.net/modules/article/search.php':
+            if 'search' in r.url:#换了一个验证方式 可以的
+                print("ok")
                 #说明有多匹配项
+                #目标在一个table里面 class为grid 如果要实现翻页功能 以及全部下载 则要另外写一个方法来实现了
+                self.getsearchearim(r.text)
                 pass
             else:
                 #直接执行下载
@@ -167,6 +183,20 @@ class wenku():
             print(r.status_code)
             print(r.headers)
 
+    def getsearchearim(self,r):
+        #这个方法用来获取多个搜索结果并写入 参数分别是request.txt
+        soup = BeautifulSoup(r,'html.parser')
+        atable = soup.find('table',class_='grid')#有没有搜索结果 就是table底下tr 底下td有没有东西的差别
+        a = atable.tr.td
+        ad = a.find_all("div",recursive=False)#recursive=False 只要子节点
+        for i in ad:
+            ai = i.find_all("div")[1]
+            pi = ai.find_all("p")[4]
+            # print(pi)
+            ahref = pi.find('a')
+            # print(ahref['href'])
+            self.getbook(ahref['href'])
+        return
     def article(self):
         article_url = 'https://www.wenku8.net/modules/article/toplist.php'
         params = {
@@ -247,18 +277,22 @@ class wenku():
 
     def saveimage(self,url,filename):
         # os.chdir(filename)
-        r = requests.get(url,headers=self.headers,cookies=self.cookies,timeout=100)
-        p = re.split('\W+',url)
-        file_path = filename + '/' + p[-2] + '.' + p[-1]
-        with open(file_path,"wb") as f:
-            f.write(r.content)
-        f.close
+        try:
+            r = requests.get(url,headers=self.headers,cookies=self.cookies,timeout=100)
+            p = re.split('\W+',url)
+            file_path = filename + '/' + p[-2] + '.' + p[-1]
+            with open(file_path,"wb") as f:
+                f.write(r.content)
+        except Exception as e:
+            print("图片不行")
+        
 
 W = wenku('cannan','memochou')
 # W.login()
 # W.cookies_stitching()
-W.searchbook(searchkey='魔法使之夜')
+W.searchbook(searchkey='月姬')
 # W.bookcase()
 # W.gettxt('https://www.wenku8.net/novel/1/1973/74161.htm','./book')
+# W.cerficate()
 
 
