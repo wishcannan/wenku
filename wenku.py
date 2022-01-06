@@ -230,6 +230,7 @@ class wenku():
         filename = self.filename + bookname + '/'
         filename1 = ''
         tr_list = all_chapter.find_all('tr')
+        n = 0
         for i in tr_list:
             td_list = i.find_all('td')
             print('td_list',td_list)
@@ -240,29 +241,37 @@ class wenku():
                     filename1 = filename+j.string
                     if not os.path.exists(filename1):
                         os.mkdir(filename1)
+                    n = 0
                     continue
                 else:
                     if j.a != None:
                         s = j.a['href'][:-4]
-                        self.gettxt('https://www.wenku8.net/novel/{}/{}/{}.htm'.format(a,bookid,s),filename1)
+                        self.gettxt('https://www.wenku8.net/novel/{}/{}/{}.htm'.format(a,bookid,s),filename1,n)
+                        n += 1
         return
 
-    def gettxt(self,url,filename):#获取章节内容并写入 
+    def gettxt(self,url,filename,n):#获取章节内容并写入 
         a = self.response_text(url)
         soup = BeautifulSoup(a,'html.parser')
         chapter_title = soup.find('div',id='title').string
         soup1 = soup.find("div",id='content')
         for biv in soup1.find_all('div'):
             # print(str(biv))
-            self.getimage(str(biv),filename)
+            # self.getimage(str(biv),filename)
             biv.decompose()
         for ul in soup1.find_all('ul'):
             ul.decompose()
-        filename = filename + '/{}'.format(chapter_title)+'.txt'
-        with open(filename,'w+',encoding="utf-8") as f:
-            f.write(chapter_title)
-            f.write(soup1.get_text())
-        f.close()
+        if n < 10:
+            n = '0'+str(n)
+        else:
+            n = str(n)
+        filename = filename + '/{}'.format(n + ' '+ chapter_title)+'.txt'
+        a = soup1.get_text()
+        if not a.isspace():
+            with open(filename,'w+',encoding="utf-8") as f:
+                f.write(chapter_title)
+                f.write(soup1.get_text())
+            f.close()
         return chapter_title+'ok'
     
     def getimage(self,p_img,filename):
@@ -290,9 +299,10 @@ class wenku():
 W = wenku('cannan','memochou')
 # W.login()
 # W.cookies_stitching()
-W.searchbook(searchkey='月姬')
+W.searchbook(searchkey='与佐伯同学同住一个屋檐下')
 # W.bookcase()
-# W.gettxt('https://www.wenku8.net/novel/1/1973/74161.htm','./book')
+# W.gettxt('https://www.wenku8.net/novel/2/2834/113152.htm','./book/ex',1)
+# W.getbook('https://www.wenku8.net/book/28.htm')
 # W.cerficate()
 
 
