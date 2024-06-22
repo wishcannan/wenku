@@ -1,53 +1,47 @@
-'''
-    这次要更好 的使用 更棒的体验 对网站要有更透彻的分析
-
-'''
 import json
 import requests
 from requests.cookies import RequestsCookieJar
 import requests.utils
-import codecs
-from bs4 import BeautifulSoup
+from urllib import parse
 import os
 import re
+from lxml import etree
+from typing import List,Union
+import time
+import base64
+import dataclasses
+from colorama import Fore,Style
 
-
+def display_message(message, color, style=Style.NORMAL):
+    formatted_message = f"{style}{color}{message}{Style.RESET_ALL}"
+    print(formatted_message)
 
 class wenku():
+    __cookies = RequestsCookieJar()
+    __headers = {
+        'User-Agent': 'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36'
+    }
+    __filename = './book/'
     def __init__(self,uid=None,pwd=None) -> None:
-        self.cookies = RequestsCookieJar()
-        self.headers = {
-            'User-Agent': 'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36'
-        }
         self.uid = uid
         self.pwd = pwd
-        proxy='127.0.0.1:1091' 
-        self.proxies={
-            'http':'http://'+proxy,
-            'https':'https://'+proxy
-        }
-        self.filename = './book/'
-        if not os.path.exists(self.filename):
-            os.mkdir(self.filename)
-        pass
-    def response_text(self,url):
-        """请求函数"""
-        response = requests.get(url,headers=self.headers,cookies=self.cookies) # 发送请求带入cookies
-        if response.status_code==200:
-            response.encoding="gbk"
-        result = response.text
-        self.cookies.update(response.cookies) #更新cookies
-        return result
+        self.__file_init()
+    
+    def __file_init(self):
+        if not os.path.exists(self.__filename):
+            os.makedirs(self.__filename)
+        if not os.path.exists('./cookies.txt'):
+            with open('./cookies.txt','w',encoding='utf-8') as f:
+                f.close()
 
-
-
-    def login(self,uid=None,pwd=None,mode=86400):#mode 和上次一样 0浏览器进程 86400一天 当然还有其他的 这里我们默认一天
-        #距离上次写这个登录怎么说呢 他们居然更新了 加了一个gbk的参数 万万没想到
-        if not uid and not pwd:
-            uid = self.uid
-            pwd = self.pwd
-            if not uid and pwd:
-                print("你是不是有鬼 登录不给账号密码 等着报错吧")
+    def login(self,uid:str='',pwd:str='',mode=86400):#mode 和上次一样 0浏览器进程 86400一天 当然还有其他的 这里我们默认一天
+        if uid:
+            self.uid = uid
+        if pwd:
+            self.pwd = pwd
+        if not self.uid or not self.pwd:
+            print("你是不是有鬼 登录不给账号密码 等着报错吧")
+            return False
         params = {
             'do':'submit'
         }
@@ -58,251 +52,270 @@ class wenku():
             'action':'login',
             'submit':'&#160;登&#160;&#160;录&#160;'#gbk的话%26%23160%3B%B5%C7%26%23160%3B%26%23160%3B%C2%BC%26%23160%3B
         }
-        # self.cookies.update(self.cookies_read())#首先读取之前的cookie 
-        if self.cerficate():
+        login_url = 'https://www.wenku8.cc/login.php'
+        r = requests.get(login_url,headers=self.__headers)
+        self.__cookies.update(r.cookies) #更新cookies
+        self.__lookcookie(r.cookies)
+        headers = self.__headers
+        headers['origin'] = 'https://www.wenku8.net'
+        headers['referer'] = 'https://www.wenku8.net/login.php'
+        login_r = requests.post(login_url,headers=headers,data=data,params=params,cookies=self.__cookies)
+        if login_r.status_code == 200:
+            self.__cookies.update(login_r.cookies)
+            self.__lookcookie(login_r.cookies)
+            self.__cookies_save(login_r.cookies)
             return True
         else:
-            #第一步 访问 这个登录页面 获取两个cookie
-            login_url = 'https://www.wenku8.net/login.php'
-            r = requests.get(login_url,headers=self.headers)
-            self.cookies.update(r.cookies) #更新cookies
-            # self.lookcookie(r.cookies)
-            headers = self.headers
-            headers['origin'] = 'https://www.wenku8.net'
-            headers['referer'] = 'https://www.wenku8.net/login.php'
-            login_r = requests.post(login_url,headers=headers,data=data,params=params,cookies=self.cookies)
-            if login_r.status_code == 200:
-                self.cookies.update(login_r.cookies)
-                self.lookcookie(login_r.cookies)
-                self.cookies_save(login_r.cookies)
-            else:
-                print('登录失败',login_r.status_code)
-    def cerficate(self):
-        #验证之前的cookie是否有效
-        self.cookies.update(self.cookies_read('cookies.txt'))#首先读取之前的cookie
-        a = self.bookcase() 
-        print(a)
-        if a == 'https://www.wenku8.net/login.php':
+            display_message("登录失败",Fore.RED, Style.BRIGHT)
             return False
-        return True
 
-    def lookcookie(self,s):
-        #方便我查看cookie s是cookie
-        cookies_dict = requests.utils.dict_from_cookiejar(s)
-        cookies_str = json.dumps(cookies_dict)#多重字典应该用dumps 不然会报错
-        print("这次的cookie为:",cookies_str,'\n')
-    
-    def cookies_read(self,a):#a 是指文件名
+    def __cookies_read(self,a:str='cookies.txt'):#a 是指文件名
         #读cookie用的 避免一直登录
-        cookies_txt = open(a, 'r')
-        cookies_dict = json.loads(cookies_txt.read())
-        # print(cookies_dict)
-        cookies = requests.utils.cookiejar_from_dict(cookies_dict)
-        # print(cookies)
+        cookies_dict = {}
+        with open(a,'r',encoding='utf-8') as f:
+            cookies = f.read()
+            if cookies:
+                cookies_dict = json.loads(cookies)
+        cookies = requests.utils.cookiejar_from_dict(cookies_dict)#将字典转为CookieJar：
         return cookies
     
-    def cookies_save(self,s):#s 是指cookie
+    def __cookies_save(self,s):#s 是指cookie
         #人工储存cookie
         cookies_dict = requests.utils.dict_from_cookiejar(s)
         cookies_str = json.dumps(cookies_dict)
         with open ('cookies.txt','w+') as f:
             f.write(cookies_str)
 
-    def cookies_stitching(self):
-        #没什么主要实现一下 cookie的拼接
-        wenku_cookie = json.loads(open("cookies2.txt",'r').read())
-        login_cookie = json.loads(open("cookies.txt",'r').read())
-        adict = dict(wenku_cookie,**login_cookie)
-        adict = json.dumps(adict)
-        with open('cookies.txt','w+') as f:
-            f.write(adict)
+    def __lookcookie(self,s:RequestsCookieJar):
+        #方便我查看cookie s是cookie
+        cookies_dict = requests.utils.dict_from_cookiejar(s)
+        cookies_str = json.dumps(cookies_dict)#多重字典应该用dumps 不然会报错
+
+    def __cerficate(self):
+        #验证之前的cookie是否有效
+        self.__cookies.update(self.__cookies_read('cookies.txt'))#首先读取之前的cookie
+        a = self.bookcase()
+        pattern = re.compile(r'https://www.wenku8.cc/login.php')
+        matchobj = pattern.match(a) 
+        if matchobj:
+            return False
+        return True
 
     def bookcase(self):
         #没什么用就是看看我的书架
-        headers = self.headers
-        headers['referer'] = 'https://www.wenku8.net/index.php'
-        bookcase_url = 'https://www.wenku8.net/modules/article/bookcase.php'
-        r = requests.get(bookcase_url,headers=headers,cookies=self.cookies)
+        headers = self.__headers
+        headers['referer'] = 'https://www.wenku8.cc/index.php'
+        bookcase_url = 'https://www.wenku8.cc/modules/article/bookcase.php'
+        r = requests.get(bookcase_url,headers=headers,cookies=self.__cookies)
         if r.status_code == 200:
-                r.encoding="gbk"
-        result = r.text
-        # print(result)
-        return r.url
-
-    def searchbook(self,type='articlename',searchkey:str=None):#参数有articlename author
-        #使用搜索功能一定要登录 不登陆就不行
-        self.cookies.update(self.cookies_read('cookies.txt'))#首先读取之前的cookie 
-        # data = {
-        #     'searchtype':type,
-        #     'searchkey':searchkey,
-        #     'charset':'gbk',
-
-        #     # 'action':'login',
-        #     'submit':'&#160;搜&#160;&#160;索&#160;'#gbk的话%26%23160%3B%CB%D1%26%23160%3B%26%23160%3B%CB%F7%26%23160%3B
-        # }
-        headers = self.headers
-        headers['origin'] = 'https://www.wenku8.net'
-        headers['referer'] = 'https://www.wenku8.net/modules/article/search.php?searchtype=articlename&searchkey='
-        #经过多次测试 正常传参 容易受到问题 没有细致研究 所以决定直接 编译网址
-        '''
-            这里还涉及到一个翻页问题 我试了试超过page页 都会自动到最后一页 所以呢
-        '''
-        searchkey = searchkey.encode("gbk")
-        searchkey = str(searchkey).replace("\\x","%")
-        searchkey = searchkey[2:-1]
-        # print(searchkey)
-        url = 'https://www.wenku8.net/modules/article/search.php?searchtype={}&searchkey={}'.format(type,searchkey)
-        # print(url)
-
-        # r = requests.post(search_url2,data=data,headers=headers,cookies=self.cookies,allow_redirects=True)
-        r = requests.get(url,headers=headers,cookies=self.cookies)
-        if r.status_code == 200:
-            print(r.headers)
             r.encoding="gbk"
-            # print(r.text)
-            # print(r.url)
-            '''
-                这里有问题 就是如果只有一个符合选项的 就会直接跳转到书页面 虽然方便爬取
-                但是如果有多个匹配项 一则要翻页 二则要对网址正则匹配
-
-            '''
-            # if r.url == 'https://www.wenku8.net/modules/article/search.php':
-            if 'search' in r.url:#换了一个验证方式 可以的
-                print("ok")
-                #说明有多匹配项
-                #目标在一个table里面 class为grid 如果要实现翻页功能 以及全部下载 则要另外写一个方法来实现了
-                self.getsearchearim(r.text)
-                pass
-            else:
-                #直接执行下载
-                self.getbook(r.url)
-                pass
-            #这里有些 要提到的搜作者 就很正常 原地址加载数据 如果搜小说名 就会看返回头 然后重定向 
-        else:
-            print('你还未登录')
-            print(r.status_code)
-            print(r.headers)
-
-    def getsearchearim(self,r):
-        #这个方法用来获取多个搜索结果并写入 参数分别是request.txt
-        soup = BeautifulSoup(r,'html.parser')
-        atable = soup.find('table',class_='grid')#有没有搜索结果 就是table底下tr 底下td有没有东西的差别
-        a = atable.tr.td
-        ad = a.find_all("div",recursive=False)#recursive=False 只要子节点
-        for i in ad:
-            ai = i.find_all("div")[1]
-            pi = ai.find_all("p")[4]
-            # print(pi)
-            ahref = pi.find('a')
-            # print(ahref['href'])
-            self.getbook(ahref['href'])
-        return
-    def article(self):
-        article_url = 'https://www.wenku8.net/modules/article/toplist.php'
-        params = {
-            'sotr':'anime'
-        }
-        r = requests.get(article_url,params=params)
-
-    def getbook(self,bookurl):
-        bookid = self.getbookid(bookurl)
-        a = int(bookid // 1000)
-        booknovel = "https://www.wenku8.net/novel/{}/{}/index.htm".format(a,bookid)
-        print(booknovel+"这次要看的书")
-        bookrespronse = requests.get(booknovel,headers=self.headers,cookies=self.cookies)
-        bookrespronse.encoding = "gbk"
-        soup = BeautifulSoup(bookrespronse.text,'html.parser')
-        bookname = soup.find('div',id="title").string#获取标题
-        print(bookname)
-        if not os.path.exists(self.filename+bookname):
-            os.mkdir(self.filename+bookname)
-        #获取章节
-        all_chapter = soup.find('table')
-        # print('all_chapter',all_chapter)
-        self.getchapter(all_chapter,bookname,bookid)
-
-
-
-    def getbookid(self,s):
-        return int(re.split('\W+',s)[-2])
-    def getchapter(self,all_chapter,bookname,bookid):
-        a = int(bookid // 1000)
-        filename = self.filename + bookname + '/'
-        filename1 = ''
-        tr_list = all_chapter.find_all('tr')
-        n = 0
-        for i in tr_list:
-            td_list = i.find_all('td')
-            print('td_list',td_list)
-            for j in td_list:
-                # print(j['class'])
-                if j['class'][0] == 'vcss':
-                    # print(j.text)
-                    filename1 = filename+j.string
-                    if not os.path.exists(filename1):
-                        os.mkdir(filename1)
-                    n = 0
-                    continue
-                else:
-                    if j.a != None:
-                        s = j.a['href'][:-4]
-                        self.gettxt('https://www.wenku8.net/novel/{}/{}/{}.htm'.format(a,bookid,s),filename1,n)
-                        n += 1
-        return
-
-    def gettxt(self,url,filename,n):#获取章节内容并写入 
-        a = self.response_text(url)
-        soup = BeautifulSoup(a,'html.parser')
-        chapter_title = soup.find('div',id='title').string
-        soup1 = soup.find("div",id='content')
-        for biv in soup1.find_all('div'):
-            # print(str(biv))
-            # self.getimage(str(biv),filename)
-            biv.decompose()
-        for ul in soup1.find_all('ul'):
-            ul.decompose()
-        if n < 10:
-            n = '0'+str(n)
-        else:
-            n = str(n)
-        filename = filename + '/{}'.format(n + ' '+ chapter_title)+'.txt'
-        a = soup1.get_text()
-        if not a.isspace():
-            with open(filename,'w+',encoding="utf-8") as f:
-                f.write(chapter_title)
-                f.write(soup1.get_text())
-            f.close()
-        return chapter_title+'ok'
+        return r.url
     
-    def getimage(self,p_img,filename):
-        pattern = r'href="(.*?)"'
-        img_href = re.findall(pattern,p_img)[0]
-        # print(img_href)
-        # print(img_href)x
-        # print(i.a.img['src'])
-        self.saveimage(img_href,filename)
-        return 'ok'
+    
+    def is_login(self):
+        if self.__cerficate():
+            return True
+        else:
+            uid= input("请输入用户名:")
+            pwd = input("请输入密码:")
+            if self.login(uid,pwd):
+                return True
+        return False
+    def __datatoparse(self,data:dict) ->str:
+        query_string = parse.urlencode(data,encoding='gbk')
+        return query_string
+    
+    def __getbookid(self,s:str)->int:
+        patten = re.compile(r'/(([0-9]+)).htm$')
+        selectobj = patten.search(s.strip()).group(1)
+        return selectobj
+    
+    def searchbook(self,selecttype='articlename',searchkey:str=None):#参数有articlename author
+        if self.is_login():
+          res = self.__selectbook(selecttype=selecttype,searchkey=searchkey,pagenum=1)
+          #0 maxpage def
+          if len(res[1])  == 0:#没有找到
+              display_message("没有找到",color=Fore.GREEN)
+          if len(res[1]) == 1:#找到了 但是直接302跳转到了小说页面
+              display_message("正在下载",color=Fore.GREEN)
+              self.__downbook(bookid=self.__getbookid(res[1][0][1]),bookname=res[1][0][0])
+              return 
+          booklist = []
+          while res[0] != res[2]:
+              display_message("稍等 page:"+str(res[2]+1),color=Fore.GREEN)
+              time.sleep(6)# 他说要等5s 
+              res = self.__selectbook(selecttype=selecttype,searchkey=searchkey,pagenum=res[2]+1)
+              for i in res[1]: #i->[[name,url],[name2,url]]
+                  i:list
+                  booklist.append(i[0])
+          display_message("看看你找的是哪一本书:",color=Fore.GREEN)
+          display_message(booklist,color=Fore.YELLOW)
+        else:
+            display_message("没有登录",color=Fore.RED)
 
 
-    def saveimage(self,url,filename):
-        # os.chdir(filename)
-        try:
-            r = requests.get(url,headers=self.headers,cookies=self.cookies,timeout=100)
-            p = re.split('\W+',url)
-            file_path = filename + '/' + p[-2] + '.' + p[-1]
-            with open(file_path,"wb") as f:
-                f.write(r.content)
-        except Exception as e:
-            print("图片不行")
+    def __selectbook(self,selecttype='articlename',searchkey:str=None,pagenum:int = 1) ->list:
+        url = 'https://www.wenku8.cc/modules/article/search.php'
+        data = {
+            'searchtype':selecttype,
+            'searchkey':searchkey,
+            'action':'login',
+            'submit':'&#160;搜&#160;&#160;索&#160;',
+            'page':pagenum,
+        }
+        data = self.__datatoparse(data)
+        headers = self.__headers
+        headers['origin'] = 'https://www.wenku8.cc'
+        headers['referer'] = 'https://www.wenku8.cc/modules/article/search.php?'
+        headers['content-type'] = 'application/x-www-form-urlencoded'
+        r = requests.post(url=url,headers=headers,data=data,cookies=self.__cookies,timeout=(5, 20))
+        if r.status_code == 200:
+            r.encoding = "gbk"
+            if 'search' in r.url:#如果有多个结果或者压根没搜到
+                element:etree._Element = etree.HTML(r.text,etree.HTMLParser())
+                rst1:List[etree._Element] = element.xpath("/html/body/div[@class='main'][2]/div[@id='centerm']/div[@id='content']/table[@class='grid']/tr/td/div")
+                max_page = element.xpath("/html/body/div[@class='main'][2]/div[@id='centerm']/div[@id='content']/div[@class='pages']/div[@id='pagelink']/a[@class='last']/text()")[0]
+                alist = []
+                for i in rst1:
+                    rst2_title = i.xpath("./div[2]/b/a/text()")[0]
+                    rst2_url = i.xpath("./div[2]/b/a/@href")[0]
+                    alist.append([rst2_title,rst2_url])
+                return [int(max_page),alist,pagenum]
+            else:
+                element:etree._Element = etree.HTML(r.text,etree.HTMLParser())
+                rst1_title = element.xpath("/html/body/div[@class='main'][2]/div[@id='centerl']/div[@id='content']/div[1]/table[1]/tr[1]/td/table/tr/td[1]/span/b/text()")[0]
+                return [1,[[rst1_title,r.url]],pagenum]
+        else:
+            display_message(r.status_code,color=Fore.RED)
+        return [1,[[]],1]
+    
+    def __downbook(self,bookid:int=3670,bookname='不和双胞胎一起『谈恋爱』吗？') -> bool:
+        #理想模式里提供两种方式 分卷 或者 整本下载 先做分卷吧 不过我就做简体 繁体 欸我直接不写
+        urllist = ['https://dl1.wenku8.com/packtxt.php?','https://dl2.wenku8.com/packtxt.php?','https://dl3.wenku8.com/packtxt.php?']
+        a = {'aid':bookid,'lang':0}
+        bookchapt = WenkuAndoridAPi.getNovelIndex(details=a)
+        bookname = re.sub(r'[\\/:*?"<>|]','_',bookname)
+        if not os.path.exists(self.__filename+bookname+'/'):
+            os.mkdir(self.__filename+bookname+'/')
+        chaptidlist = bookchapt.keys()
+        for i in chaptidlist:#小说卷 名字
+            chaptname:str = bookchapt[i]['title']
+            chaptname = re.sub(r'[\\/:*?"<>|]','_',chaptname)
+            if not os.path.exists(self.__filename+bookname+'/'+chaptname):
+                os.mkdir(self.__filename+bookname+'/'+chaptname)#./book/Re_/第一卷
+            for index in range(3):
+                url = urllist[index]+'aid={}&vid={}&charset=utf-8'.format(bookid,i)
+                try:
+                    res = requests.get(url=url,headers=self.__headers)
+                    if res.status_code == 200:
+                        with open(self.__filename+bookname+'/'+chaptname+'/'+chaptname+'.txt','wb') as f:#他们表面说utf-8 实际早早用上utf-16 奇怪表情太多了
+                            f.write(res.content)
+                    else:
+                        display_message(res.status_code,color=Fore.RED)
+                except Exception as e:
+                    print(e)
+                else:
+                    print(Fore.GREEN+chaptname,Fore.BLUE+i)
+                    break
+            detailed:dict = bookchapt[i]['data']
+            if '插图' in detailed.keys():
+                self.__downimg(bookid=bookid,imgurl=int(detailed['插图']),bookname=bookname,chaptname=chaptname)
+            
+
+    def __downimg(self,bookid:int=1861,imgurl:int=65640,bookname:str='Re_从零开始的异世界生活',chaptname:str='第一卷'):
+        a = {'aid':bookid,'cid':imgurl,'lang':0}
+        imglist = WenkuAndoridAPi.getNovelContent(details=a,texttype=1)
+        pattern = re.compile("^https?:\\/\\/[^:<>\"]*\\/(\\d+)\\.((png)|(jpg)|(webp)|(jpeg))$")
+        for i in imglist:
+            matchobj = pattern.match(i)
+            imgname:str = str(matchobj.group(1))
+            imgtype = matchobj.group(2)
+            with open(self.__filename+bookname+'/'+chaptname+'/'+imgname+'.'+imgtype,'wb') as f:
+                res = requests.get(url=i,headers=self.__headers)#访问图片也要带header
+                if res.status_code == 200:
+                    f.write(res.content)
+        display_message(chaptname+' 下载完成',Fore.GREEN)
+        return True
+
+
+# @dataclasses.dataclass
+class WenkuAndoridAPi():
+    __header = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 7.1.2; unknown Build/NZH54D)',
+    }
+    def __encode(self,s:str):
+        s = bytes(s,encoding="utf-8")
+        a = base64.b64encode(s)#btoa(str) base64 to ASCII
+        a = a.decode("utf-8")
+        return '&appver=1.13&request=' + str(a) + '&timetoken=' + str(int(time.time() * 1000))#1718874662575
+    
+    def __apirequest(self,details):
+        data = self.__encode(details)
+        r = requests.post(url='http://app.wenku8.com/android.php',headers=self.__header,data=data,timeout=(5, 20))
+        if r.status_code == 200:
+            return r.text
         
+    @classmethod 
+    def getNovelIndex(cls,details:dict[str:str]) ->dict:
+        '''
+        在想返回数据类型的时候 算了内部用用dict 就好 转换来转换去的干什么
+        {
+            id1:{
+                title:'title1',
+                data:{
+                    subtitle1:id1,subtitle2:id2
+                }
+            },
+            id2:{
+                title:'title2'
+            }
+        }
+        '''
+        aid = details['aid']    
+        lang = details['lang']
+        url = 'action=book&do=list&aid=' + str(aid) + '&t=' + str(lang)
+        r = cls().__apirequest(url)
+        ru_8 = bytes(r,encoding='utf-8')#lxml 不支持解析带有encoding 声明的字符串 所以要先转换从byte
+        tree:etree._Element = etree.XML(ru_8,etree.XMLParser())
+        root = tree.xpath("/package/volume")
+        adict = {}
+        for i in root:
+            i:etree._Element
+            # print(i.xpath("./@vid")[0],i.text.replace('\n', '').replace('\r', ''))#这一步拿到 每一卷的id 和 卷名
+            juanid = str(i.xpath("./@vid")[0])
+            adict[juanid] = {'title':i.text.replace('\n', '').replace('\r', ''),'data':{}}
+            temp = i.xpath("./chapter")
+            for j in temp:
+                j:etree._Element
+                # print(j.xpath("./@cid")[0],j.text)
+                jieid = str(j.xpath("./@cid")[0])
+                adict[juanid]['data'][j.text] = jieid
+        return adict
 
-W = wenku('cannan','memochou')
-# W.login()
-# W.cookies_stitching()
-W.searchbook(searchkey='与佐伯同学同住一个屋檐下')
-# W.bookcase()
-# W.gettxt('https://www.wenku8.net/novel/2/2834/113152.htm','./book/ex',1)
-# W.getbook('https://www.wenku8.net/book/28.htm')
-# W.cerficate()
+    @classmethod
+    def getNovelContent(cls,details:dict[str:str],texttype=0) ->list:
+        aid = details['aid']    
+        cid = details['cid']
+        lang = details['lang']
+        url = 'action=book&do=text&aid=' + str(aid) + '&cid=' + str(cid) + '&t=' + str(lang)
+        r = cls().__apirequest(url)
+        if texttype:
+            pattern = re.compile(r"<!--image-->(https?:[^<>]+)<!--image-->")
+            findobj = pattern.findall(r)
+        else:
+            findobj = r.splitlines()#文字版本
+        return findobj
 
 
+
+        
+if __name__ == "__main__":
+    W = wenku()
+    # 输入关键词就可以搜索了 如果要你登录 就登录 这cookie维持时间只能说超乎想象
+    # 如果精准匹配到了 就会自动下载 没有匹配到 就自己选选
+    W.searchbook(searchkey='从零开始的异世界生活')
+
+
+    # b= {'aid':1159,'cid':35419,'lang':0}
+    # print(WenkuAndoridAPi.getNovelContent(b))
