@@ -9,8 +9,8 @@ from lxml import etree
 from typing import List,Union
 import time
 import base64
-import dataclasses
 from colorama import Fore,Style
+from wenkuthread import wenkupool as WenkuPool
 
 def display_message(message, color, style=Style.NORMAL):
     formatted_message = f"{style}{color}{message}{Style.RESET_ALL}"
@@ -26,6 +26,7 @@ class wenku():
         self.uid = uid
         self.pwd = pwd
         self.__file_init()
+        self.Pool = None
     
     def __file_init(self):
         if not os.path.exists(self.__filename):
@@ -197,6 +198,7 @@ class wenku():
         bookname = re.sub(r'[\\/:*?"<>|]','_',bookname)
         if not os.path.exists(self.__filename+bookname+'/'):
             os.mkdir(self.__filename+bookname+'/')
+        self.Pool = WenkuPool(bookname)
         chaptidlist = bookchapt.keys()
         for i in chaptidlist:#小说卷 名字
             chaptname:str = bookchapt[i]['title']
@@ -219,21 +221,13 @@ class wenku():
                     break
             detailed:dict = bookchapt[i]['data']
             if '插图' in detailed.keys():
-                self.__downimg(bookid=bookid,imgurl=int(detailed['插图']),bookname=bookname,chaptname=chaptname)
+                self.__downimg(bookid=bookid,imgurl=int(detailed['插图']),chaptname=chaptname)
             
 
-    def __downimg(self,bookid:int=1861,imgurl:int=65640,bookname:str='Re_从零开始的异世界生活',chaptname:str='第一卷'):
+    def __downimg(self,bookid:int=1861,imgurl:int=65640,chaptname:str='第一卷'):
         a = {'aid':bookid,'cid':imgurl,'lang':0}
         imglist = WenkuAndoridAPi.getNovelContent(details=a,texttype=1)
-        pattern = re.compile("^https?:\\/\\/[^:<>\"]*\\/(\\d+)\\.((png)|(jpg)|(webp)|(jpeg))$")
-        for i in imglist:
-            matchobj = pattern.match(i)
-            imgname:str = str(matchobj.group(1))
-            imgtype = matchobj.group(2)
-            with open(self.__filename+bookname+'/'+chaptname+'/'+imgname+'.'+imgtype,'wb') as f:
-                res = requests.get(url=i,headers=self.__headers)#访问图片也要带header
-                if res.status_code == 200:
-                    f.write(res.content)
+        self.Pool.done(chaptname,imglist)
         display_message(chaptname+' 下载完成',Fore.GREEN)
         return True
 
@@ -314,7 +308,7 @@ if __name__ == "__main__":
     W = wenku()
     # 输入关键词就可以搜索了 如果要你登录 就登录 这cookie维持时间只能说超乎想象
     # 如果精准匹配到了 就会自动下载 没有匹配到 就自己选选
-    W.searchbook(searchkey='从零开始的异世界生活')
+    W.searchbook(searchkey='冰川老师')
 
 
     # b= {'aid':1159,'cid':35419,'lang':0}
