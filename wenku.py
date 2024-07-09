@@ -12,8 +12,8 @@ import base64
 from colorama import Fore,Style
 from wenkuthread import wenkupool as WenkuPool
 import database
-from book import Wenkubook1 as wenkubook
-from book import get_book,insert
+from book import Wenkubook1,Wenkubook2,Wenkubook3
+from book import get_book,insert,insertbooktext
 import sqlalchemy
 
 
@@ -202,12 +202,20 @@ class wenku():
         bookchapt = WenkuAndoridAPi.getNovelIndex(details=a)
         chaptidlist = bookchapt.keys()
         if downtype:
+            w1 = Wenkubook1(book_id=bookid,book_name=bookname)
             #好消息 起码书名不用和谐了 原汁原味 发现和之前要的数据结构 冲突的不行 人麻了
+            w2 = []
             for i in chaptidlist:
+                w2.append(Wenkubook2(chapter_id=int(i),chapter_name=bookchapt[i]['title'],book_id=bookid))
                 chaptname:str = bookchapt[i]['title']#小说卷名 i chapt_id
                 detailed:dict = bookchapt[i]['data']
+                order = 0
                 for j in detailed.keys():# j 小节名 detailed[j] 这才是chapter_id
-                    self.__getcontent(bookid=bookid,bookname=bookname,chapterid=int(detailed[j]),chaptername=j)
+                    b = self.__getcontent(bookid=bookid,chapterid=int(detailed[j]))
+                    w3 = Wenkubook3(chapter_id=int(detailed[j]),bid=int(i),chapter_name=j,chapter_text=b,chapter_order=order)
+                    insertbooktext(w3)
+                    order += 1
+            insert(w1,w2)
             return
         #理想模式里提供两种方式 分卷 或者 整本下载 先做分卷吧 不过我就做简体 繁体 欸我直接不写
         urllist = ['https://dl1.wenku8.com/packtxt.php?','https://dl2.wenku8.com/packtxt.php?','https://dl3.wenku8.com/packtxt.php?']
@@ -247,12 +255,10 @@ class wenku():
         display_message(chaptname+' 下载完成',Fore.GREEN)
         return True
 
-    def __getcontent(self,bookid:int=0,bookname:str='',chapterid:int=0,chaptername:str=''):
+    def __getcontent(self,bookid:int=0,chapterid:int=0) ->str:
         a = {'aid':bookid,'cid':chapterid,'lang':0}
-        content =  WenkuAndoridAPi.getNovelContent(details=a,texttype=0)
-        insert(bookid=bookid,bookname=bookname,chapterid=chapterid,chaptername=chaptername,chaptertext=content)
-        display_message(chaptername+' 下载完成',Fore.GREEN)
-        return True
+        content:str =  WenkuAndoridAPi.getNovelContent(details=a,texttype=0)
+        return content
 
 # @dataclasses.dataclass
 class WenkuAndoridAPi():
@@ -310,7 +316,7 @@ class WenkuAndoridAPi():
         return adict
 
     @classmethod
-    def getNovelContent(cls,details:dict[str:str],texttype=0) ->list:
+    def getNovelContent(cls,details:dict[str:str],texttype=0) ->Union[List,str]:
         aid = details['aid']    
         cid = details['cid']
         lang = details['lang']
@@ -332,7 +338,7 @@ if __name__ == "__main__":
     W = wenku()
     # 输入关键词就可以搜索了 如果要你登录 就登录 这cookie维持时间只能说超乎想象
     # 如果精准匹配到了 就会自动下载 没有匹配到 就自己选选
-    W.searchbook(searchkey='反派富二代',downtype=1)
+    W.searchbook(searchkey='不时轻声地以俄语',downtype=1)
 
     # b= {'aid':3686,'cid':154166,'lang':0 }
     # b = {'aid':3686,'lang':0}
